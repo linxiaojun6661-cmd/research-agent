@@ -95,6 +95,8 @@ if __name__ == "__main__":
     print(f"  注入查询: {'✅ 放行' if ok5 else '❌ 拦截'} ({why5})")
 
     print("\n测试 3: 人工确认（auto_yes 演示）")
-    print(f"  结果: {'✅ 已批准' if confirm_plan('1. 搜索大模型\n2. 汇总资料', auto_yes=True) else '❌ 已拒绝'}")
+    # 注意: f-string 表达式里不能含反斜杠（Python 3.11 限制），先存变量
+    demo_plan = "1. 搜索大模型\n2. 汇总资料"
+    print(f"  结果: {'✅ 已批准' if confirm_plan(demo_plan, auto_yes=True) else '❌ 已拒绝'}")
     print("═" * 50)
     print("✅ 安全层自检完成")

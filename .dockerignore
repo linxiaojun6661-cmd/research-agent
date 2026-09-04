@@ -1,0 +1,8 @@
+.env
+outputs/
+traces/
+memory/
+__pycache__/
+.git/
+Dockerfile
+.dockerignore

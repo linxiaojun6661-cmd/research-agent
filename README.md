@@ -86,6 +86,26 @@ python eval_runner.py --full       # 回归全部 3 个主题
 
 评测通过退出码 0、失败退出码 1，可直接接入 CI。
 
+## Docker 部署
+
+```bash
+# 构建
+docker build -t research-agent .
+
+# 运行（key 通过 -e 注入，绝不写进镜像）
+docker run -d --name research-agent -p 8123:8123 `
+  -e DEEPSEEK_API_KEY=你的key `
+  -e TAVILY_API_KEY=你的key `
+  -e OLLAMA_URL=http://host.docker.internal:11434 `
+  research-agent
+
+# 打开 API 文档: http://localhost:8123/docs
+```
+
+> 长期记忆的 embedding 依赖 Ollama：本机直接跑用默认 `localhost:11434`；
+> 容器里跑需传 `OLLAMA_URL=http://host.docker.internal:11434` 指向宿主机（Windows/Mac），
+> Ollama 不可用时记忆功能自动降级。
+
 ## 扩展指南
 
 ### 加一个新工具

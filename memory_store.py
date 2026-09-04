@@ -9,6 +9,7 @@ memory_store.py — 长期记忆（第 ⑭ 步）—— RAG 向量库
 """
 import json
 import math
+import os
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -20,7 +21,9 @@ import config
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 EMBED_MODEL = "nomic-embed-text"
-OLLAMA_URL = "http://localhost:11434"
+# Docker 里 localhost 指向容器自己——想用宿主机 Ollama 时传:
+#   OLLAMA_URL=http://host.docker.internal:11434
+OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
 
 
 # ═══════════════════════════════════════════════════════════
