@@ -10,6 +10,8 @@
 - **成本控制**：token 预算上限、超限自动降级交付草稿、重试分级（暂时性错误才重试，指数退避）
 - **全链路可观测**：JSONL trace 记录每次 API/工具调用的耗时与 token
 - **三层评估体系**：规则断言（零成本）+ LLM-as-judge 报告评分 + Golden 主题集回归
+- **MCP 双协议**：工具集同时以 Function Calling 与 MCP 协议暴露，外部 AI 程序可直接调用
+- **长期记忆**：调研成果切块向量化入库（RAG），同主题调研自动复用历史成果
 
 ## 架构
 
@@ -19,7 +21,9 @@ pipeline.py      四角色流水线（research → write → review → revise�
 ├── tools.py          工具层（Tavily 搜索 / 计算器 / 知识库）
 ├── safety.py         安全层（查询检查 / URL 白名单 / 人工确认）
 ├── cost_control.py   可靠性层（token 预算 / 重试分级 / 指数退避）
-└── trace_log.py      可观测层（JSONL 全链路日志）
+├── trace_log.py      可观测层（JSONL 全链路日志）
+└── memory_store.py   长期记忆（RAG 向量库 / 调研成果复用）
+mcp_server.py    MCP 服务器（工具双协议暴露给外部 AI 程序）
 eval_safety.py   安全评测（断言，零 API 成本）
 eval_report.py   报告质量评测（LLM-as-judge）
 eval_runner.py   Golden 回归（管线 + judge + 成本断言三合一）
@@ -30,8 +34,16 @@ eval_runner.py   Golden 回归（管线 + judge + 成本断言三合一）
 ### 1. 环境
 
 ```bash
-pip install openai httpx python-dotenv
+pip install -r requirements.txt
 ```
+
+长期记忆功能需要本机 [Ollama](https://ollama.com) 并拉取 embedding 模型：
+
+```bash
+ollama pull nomic-embed-text
+```
+
+（Ollama 不可用时记忆功能自动降级，不影响主流程）
 
 ### 2. 配置 Key
 
@@ -94,7 +106,7 @@ python eval_runner.py --full       # 回归全部 3 个主题
 
 - **搜索依赖 Tavily**：返回质量决定资料上限；没有做网页全文抓取（白名单内 URL 可直接浏览器抓取，尚未接入 pipeline）
 - **审查与撰写不共享资料原文**：reviewer 检查事实一致性时凭模型自身知识，理想做法是把资料汇编也传给 reviewer
-- **无长期记忆**：每次调研从零开始，调研成果不跨次复用（路线图上的增强项）
+- **记忆召回无 rerank**：向量检索 + 固定阈值过滤，知识库上规模后应加 reranker 精排（两段式检索）
 - **judge 非绝对可靠**：LLM-as-judge 有漏判率，正式使用建议抽样人工复核
 - **DeepSeek 单一模型**：四角色共用同一模型，未做角色级模型路由
 
@@ -107,8 +119,10 @@ research-agent/
 ├── safety.py          # 安全层
 ├── cost_control.py    # 可靠性层
 ├── trace_log.py       # 可观测层
+├── memory_store.py    # 长期记忆（RAG 向量库）
 ├── pipeline.py        # 四角色流水线
 ├── main.py            # CLI 入口
+├── mcp_server.py      # MCP 服务器
 ├── eval_safety.py     # 安全评测
 ├── eval_report.py     # 报告质量评测
 ├── eval_runner.py     # Golden 回归

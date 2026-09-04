@@ -21,6 +21,7 @@ from openai import OpenAI
 
 import config
 import cost_control
+import memory_store
 import safety
 import tools
 from trace_log import TraceLogger
@@ -151,13 +152,16 @@ def role_plan(topic: str, budget, trace) -> str:
     return reply.content or ""
 
 
-def role_research(topic: str, plan: str, budget, trace) -> str:
-    """researcher 第二步: 按计划执行搜索（agent loop + 工具调用）。"""
+def role_research(topic: str, plan: str, history: str, budget, trace) -> str:
+    """researcher 第二步: 按计划执行搜索（agent loop + 工具调用）。
+    history = 历史调研成果（可为空串），作为参考资料注入。"""
     role = ROLE_MODULES["researcher"]
     role_tools = [t for t in tools.TOOLS if t["function"]["name"] in role["tools"]]
+    history_block = (f"\n历史调研成果（可参考，需重新核实来源）:\n{history}"
+                     if history else "")
     messages = build_messages(
         role["system"],
-        f"调研主题: {topic}\n搜索计划:\n{plan}\n\n"
+        f"调研主题: {topic}\n搜索计划:\n{plan}{history_block}\n\n"
         f"请按计划执行搜索，输出资料汇编（每条资料含标题、内容要点、URL）。")
     trace.log("role_start", role="researcher", phase="research")
 
@@ -244,6 +248,11 @@ def run_pipeline(topic: str, auto_yes: bool = False,
         return None
 
     try:
+        # ── 长期记忆: 查历史调研成果（增强，失败静默降级）──
+        history = memory_store.recall_safe(topic)
+        if history:
+            trace.log("memory_hit", chars=len(history))
+
         # ── researcher: 计划 → 人工确认 → 调研 ──
         plan = role_plan(topic, budget, trace)
         trace.log("plan_generated", plan_preview=plan[:200])
@@ -251,7 +260,7 @@ def run_pipeline(topic: str, auto_yes: bool = False,
             trace.finish("cancelled", reason="用户拒绝执行计划")
             return None
 
-        materials = role_research(topic, plan, budget, trace)
+        materials = role_research(topic, plan, history, budget, trace)
 
         # ── writer → review → revise 有界循环 ──
         draft = role_write(topic, materials, budget, trace)
@@ -265,6 +274,10 @@ def run_pipeline(topic: str, auto_yes: bool = False,
             trace.log("revise_loop", round=round_no, passed=False,
                       issues_count=len(issues))
             draft = role_revise(topic, draft, issues, budget, trace)
+
+        # ── 长期记忆: 调研成果入库（下次同主题直接复用）──
+        if draft:
+            memory_store.remember_safe(topic, draft)
 
         trace.finish("ok", report_chars=len(draft))
         return draft
