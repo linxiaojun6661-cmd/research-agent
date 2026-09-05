@@ -70,6 +70,13 @@ TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "")
 SEARCH_RESULTS_PER_QUERY = 5    # 每次搜索返回条数
 MAX_PAGE_CHARS = 6000           # 单页抓取截断长度（控制成本）
 
+# ═══════════════════════════════════════════════════════════
+# ⑥ 服务安全（P0: 鉴权 + 限流）
+# ═══════════════════════════════════════════════════════════
+API_TOKEN = os.getenv("API_TOKEN", "")    # 为空 = 不启用鉴权（本地开发方便）
+RATE_LIMIT_PER_MINUTE = 30                # 普通接口每 IP 每分钟上限
+RESEARCH_RATE_LIMIT = 3                   # /research 更严格（每次调用都花钱）
+
 
 if __name__ == "__main__":
     # 自检: python config.py 直接运行，验证配置加载
