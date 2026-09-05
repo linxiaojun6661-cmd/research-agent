@@ -1,5 +1,7 @@
 # 研报 Agent（ResearchPilot）
 
+![eval](https://github.com/linxiaojun6661-cmd/research-agent/actions/workflows/eval.yml/badge.svg)
+
 多智能体调研报告流水线：输入一个主题，自动完成 **搜索 → 资料汇编 → 撰写 → 审查 → 修订**，输出带引用溯源的中文 Markdown 报告。
 
 ## 特性
@@ -12,6 +14,8 @@
 - **三层评估体系**：规则断言（零成本）+ LLM-as-judge 报告评分 + Golden 主题集回归
 - **MCP 双协议**：工具集同时以 Function Calling 与 MCP 协议暴露，外部 AI 程序可直接调用
 - **长期记忆**：调研成果切块向量化入库（RAG），同主题调研自动复用历史成果
+- **服务安全**：Bearer Token 鉴权 + 滑动窗口限流（按 IP+接口分桶，调研接口限额更严）
+- **异步任务**：提交秒回 task_id（HTTP 202），后台执行 + 状态轮询；每次 push 自动跑离线评测 CI
 
 ## 架构
 
@@ -24,9 +28,11 @@ pipeline.py      四角色流水线（research → write → review → revise�
 ├── trace_log.py      可观测层（JSONL 全链路日志）
 └── memory_store.py   长期记忆（RAG 向量库 / 调研成果复用）
 mcp_server.py    MCP 服务器（工具双协议暴露给外部 AI 程序）
-eval_safety.py   安全评测（断言，零 API 成本）
-eval_report.py   报告质量评测（LLM-as-judge）
-eval_runner.py   Golden 回归（管线 + judge + 成本断言三合一）
+auth.py           鉴权 + 限流（Bearer Token / 滑动窗口）
+async_tasks.py    异步任务表（提交秒回 task_id，后台线程执行）
+eval_safety.py    安全评测（断言，零 API 成本）
+eval_report.py    报告质量评测（LLM-as-judge，三维 0-100 打分）
+eval_runner.py    Golden 回归（管线 + judge + 成本断言 + 历史成绩对比）
 ```
 
 ## 快速开始
@@ -84,7 +90,11 @@ python eval_runner.py              # Golden 回归（跑 1 个主题，省钱模
 python eval_runner.py --full       # 回归全部 3 个主题
 ```
 
-评测通过退出码 0、失败退出码 1，可直接接入 CI。
+- 评测通过退出码 0、失败退出码 1，已接入 GitHub Actions（每次 push 自动跑离线评测）
+- judge 为三维 0-100 打分：引用可溯源(0.5) + 结构完整(0.3) + 语言中文(0.2)，
+  通过线为总分 ≥ 70 且单项 ≥ 60；Golden 回归记录历史成绩，跨版本退化立即可见
+- 与 pipeline 内 reviewer 的分工：reviewer 是生产内的"门卫"（二元 pass/issues），
+  judge 是生产外的"打分员"（量化验收 + 跨版本对比）
 
 ## Docker 部署
 
@@ -97,6 +107,7 @@ docker run -d --name research-agent -p 8123:8123 `
   -e DEEPSEEK_API_KEY=你的key `
   -e TAVILY_API_KEY=你的key `
   -e OLLAMA_URL=http://host.docker.internal:11434 `
+  -e API_TOKEN=你的API密钥 `
   research-agent
 
 # 打开 API 文档: http://localhost:8123/docs
@@ -105,6 +116,26 @@ docker run -d --name research-agent -p 8123:8123 `
 > 长期记忆的 embedding 依赖 Ollama：本机直接跑用默认 `localhost:11434`；
 > 容器里跑需传 `OLLAMA_URL=http://host.docker.internal:11434` 指向宿主机（Windows/Mac），
 > Ollama 不可用时记忆功能自动降级。
+
+## HTTP API（FastAPI）
+
+```bash
+uvicorn app:app --port 8123
+# API 文档: http://localhost:8123/docs
+```
+
+| 接口 | 说明 |
+|------|------|
+| `POST /research` | 提交调研任务，**秒回** task_id（HTTP 202），后台异步执行 |
+| `GET /research/{task_id}` | 轮询任务状态：pending → running → done/failed |
+| `GET /reports` / `GET /reports/{name}` | 历史报告 |
+| `GET /health` | 健康检查 |
+
+**鉴权**：设置环境变量 `API_TOKEN` 后，`POST /research` 要求 `Authorization: Bearer <token>`；
+不设置则开发模式直连（本地使用）。
+
+**限流**：滑动窗口按 IP+接口分桶——普通接口 30 次/分，`/research` 3 次/分
+（每次调研都在消耗 API 费用，限额更严）。
 
 ## 扩展指南
 
@@ -142,7 +173,11 @@ research-agent/
 ├── memory_store.py    # 长期记忆（RAG 向量库）
 ├── pipeline.py        # 四角色流水线
 ├── main.py            # CLI 入口
+├── app.py             # FastAPI 服务（异步任务接口）
+├── auth.py            # 鉴权 + 限流
+├── async_tasks.py     # 异步任务表
 ├── mcp_server.py      # MCP 服务器
+├── .github/workflows/ # CI: 每次 push 自动跑离线评测
 ├── eval_safety.py     # 安全评测
 ├── eval_report.py     # 报告质量评测
 ├── eval_runner.py     # Golden 回归
