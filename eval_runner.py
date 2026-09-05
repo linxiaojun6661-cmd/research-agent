@@ -10,6 +10,7 @@ eval_runner.py — Golden 主题集回归（第 ⑪ 步）
 """
 import json
 import sys
+from datetime import datetime
 
 import config
 import cost_control
@@ -19,6 +20,30 @@ from main import make_safe_filename
 from trace_log import TraceLogger
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
+# 历史成绩单: 每次回归的记录，用于跨版本对比（分数退化立刻可见）
+HISTORY_FILE = config.OUTPUT_DIR / "eval_history.json"
+
+
+def load_history() -> dict:
+    if HISTORY_FILE.exists():
+        return json.loads(HISTORY_FILE.read_text(encoding="utf-8"))
+    return {}
+
+
+def previous_score(topic: str) -> int | None:
+    runs = load_history().get(topic, [])
+    return runs[-1]["score"] if runs else None
+
+
+def record_score(topic: str, total: int):
+    h = load_history()
+    h.setdefault(topic, []).append({
+        "date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "score": total,
+    })
+    HISTORY_FILE.write_text(json.dumps(h, ensure_ascii=False, indent=1),
+                            encoding="utf-8")
 
 # 固定主题集: 覆盖面广、体量小，控制回归成本
 GOLDEN_TOPICS = [
@@ -54,14 +79,19 @@ def run_topic(topic: str, idx: int) -> tuple[bool, dict]:
 
     tokens = count_tokens(trace.path)
     verdict = judge_report(report)
-    ok_judge, fail = score_report(verdict)
+    ok_judge, fail, total = score_report(verdict)
+
+    # 历史对比: 与上次同主题成绩做差（负分 = 退化，立刻报警）
+    prev = previous_score(topic)
+    record_score(topic, total)
+    delta = f"{total - prev:+d}" if prev is not None else "首测"
 
     out = config.OUTPUT_DIR / f"{make_safe_filename('golden_' + topic)}.md"
     out.write_text(report, encoding="utf-8")
 
     r.update({
         "chars": f"{len(report):,}字",
-        "judge": "✅" if ok_judge else f"❌ {fail}",
+        "judge": f"{'✅' if ok_judge else '❌'} {total}分({delta})",
         "cost": f"{tokens:,}/{PER_TOPIC_BUDGET:,}",
         "report": out.name,
     })
